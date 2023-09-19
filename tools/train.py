@@ -151,7 +151,7 @@ def main():
                 print(_module_path)
                 plg_lib = importlib.import_module(_module_path)
                 
-    plg_lib = importlib.import_module('mmdetection3d.mmdet3d')
+    plg_lib = importlib.import_module('mmdet3d')
 
     # set cudnn_benchmark
     if cfg.get('cudnn_benchmark', False):

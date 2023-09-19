@@ -12,6 +12,9 @@ from pyquaternion import Quaternion
 from shapely.geometry import MultiPoint, box
 
 from mmdet3d.core.bbox import points_cam2img
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+print(sys.path)
 from projects.mmdet3d_plugin.datasets import CustomNuScenesDataset
 
 nus_categories = ('car', 'truck', 'trailer', 'bus', 'construction_vehicle',
