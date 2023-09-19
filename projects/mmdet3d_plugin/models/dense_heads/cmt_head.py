@@ -47,6 +47,8 @@ def pos2embed(pos, num_pos_feats=128, temperature=10000):
     pos_x = torch.stack((pos_x[..., 0::2].sin(), pos_x[..., 1::2].cos()), dim=-1).flatten(-2)
     pos_y = torch.stack((pos_y[..., 0::2].sin(), pos_y[..., 1::2].cos()), dim=-1).flatten(-2)
     posemb = torch.cat((pos_y, pos_x), dim=-1)
+    
+    # torch.Size([1, 900, 512])
     return posemb
 
 
@@ -423,28 +425,47 @@ class CmtHead(BaseModule):
         coords_h, coords_w, coords_d = torch.meshgrid([coords_h, coords_w, coords_d])
 
         coords = torch.stack([coords_w, coords_h, coords_d, coords_h.new_ones(coords_h.shape)], dim=-1)
-        coords[..., :2] = coords[..., :2] * coords[..., 2:3]
+        coords[..., :2] = coords[..., :2] * coords[..., 2:3]  # torch.Size([40, 100, 64, 4])
         
         imgs2lidars = np.concatenate([np.linalg.inv(meta['lidar2img']) for meta in img_metas])
-        imgs2lidars = torch.from_numpy(imgs2lidars).float().to(coords.device)
+        imgs2lidars = torch.from_numpy(imgs2lidars).float().to(coords.device)  # torch.Size([6, 4, 4])
+        # torch.Size([6, 40, 100, 64, 4])
         coords_3d = torch.einsum('hwdo, bco -> bhwdc', coords, imgs2lidars)
+        # torch.Size([6, 40, 100, 64, 3])
         coords_3d = (coords_3d[..., :3] - coords_3d.new_tensor(self.pc_range[:3])[None, None, None, :] )\
                         / (coords_3d.new_tensor(self.pc_range[3:]) - coords_3d.new_tensor(self.pc_range[:3]))[None, None, None, :]
-        return self.rv_embedding(coords_3d.reshape(*coords_3d.shape[:-2], -1))
+        return self.rv_embedding(coords_3d.reshape(*coords_3d.shape[:-2], -1))  # torch.Size([6, 40, 100, 256])
 
     def _bev_query_embed(self, ref_points, img_metas):
+        """
+        content embeding
+        """
         bev_embeds = self.bev_embedding(pos2embed(ref_points, num_pos_feats=self.hidden_dim))
         return bev_embeds
 
     def _rv_query_embed(self, ref_points, img_metas):
+        """
+        positional embeding
+        公式： Γ_q = ψ_{pc} (A_{pc}) + ψ_{im} (A_{im})
+        ref_points: torch.Size([1, 900, 3])
+        """
         pad_h, pad_w, _ = img_metas[0]['pad_shape'][0]
         lidars2imgs = np.stack([meta['lidar2img'] for meta in img_metas])
         lidars2imgs = torch.from_numpy(lidars2imgs).float().to(ref_points.device)
         imgs2lidars = np.stack([np.linalg.inv(meta['lidar2img']) for meta in img_metas])
         imgs2lidars = torch.from_numpy(imgs2lidars).float().to(ref_points.device)
 
-        ref_points = ref_points * (ref_points.new_tensor(self.pc_range[3:]) - ref_points.new_tensor(self.pc_range[:3])) + ref_points.new_tensor(self.pc_range[:3])
-        proj_points = torch.einsum('bnd, bvcd -> bvnc', torch.cat([ref_points, ref_points.new_ones(*ref_points.shape[:-1], 1)], dim=-1), lidars2imgs)
+        # 公式 6
+        ref_points = ref_points * (ref_points.new_tensor(self.pc_range[3:]) - ref_points.new_tensor(self.pc_range[:3])) + ref_points.new_tensor(self.pc_range[:3])  # torch.Size([1, 900, 3])
+        
+        # 世界坐标系下 xyz1，和 lidars2imgs 转换到 图像坐标系。
+        # torch.Size([1, 6, 900, 4])
+        proj_points = torch.einsum('bnd, bvcd -> bvnc',
+                                   torch.cat([
+                                       ref_points,  # torch.Size([1, 900, 3])
+                                       ref_points.new_ones(*ref_points.shape[:-1], 1)  # torch.Size([1, 900, 1])
+                                       ],  dim=-1),
+                                   lidars2imgs)  # torch.Size([1, 6, 4, 4])
         
         proj_points_clone = proj_points.clone()
         z_mask = proj_points_clone[..., 2:3].detach() > 0
@@ -453,7 +474,7 @@ class CmtHead(BaseModule):
         
         mask = (proj_points_clone[..., 0] < pad_w) & (proj_points_clone[..., 0] >= 0) & (proj_points_clone[..., 1] < pad_h) & (proj_points_clone[..., 1] >= 0)
         mask &= z_mask.squeeze(-1)
-
+        # torch.Size([64])
         coords_d = 1 + torch.arange(self.depth_num, device=ref_points.device).float() * (self.pc_range[3] - 1) / self.depth_num
         proj_points_clone = torch.einsum('bvnc, d -> bvndc', proj_points_clone, coords_d)
         proj_points_clone = torch.cat([proj_points_clone[..., :3], proj_points_clone.new_ones(*proj_points_clone.shape[:-1], 1)], dim=-1)
@@ -464,40 +485,61 @@ class CmtHead(BaseModule):
         
         rv_embeds = self.rv_embedding(projback_points.reshape(*projback_points.shape[:-2], -1))
         rv_embeds = (rv_embeds * mask.unsqueeze(-1)).sum(dim=1)
-        return rv_embeds
+        return rv_embeds  # torch.Size([1, 900, 256])
 
     def query_embed(self, ref_points, img_metas):
+        """
+        获取 点云 图像的 query。
+        ref_points 是 3D 空间中的随机点。
+        将随机点 投影到 BEV(点云) 视角和图像视角下， 作 self-attention。
+        """
+        
         ref_points = inverse_sigmoid(ref_points.clone()).sigmoid()
+        
         bev_embeds = self._bev_query_embed(ref_points, img_metas)
         rv_embeds = self._rv_query_embed(ref_points, img_metas)
         return bev_embeds, rv_embeds
 
     def forward_single(self, x, x_img, img_metas):
         """
-            x: [bs c h w]
+        x 是激光雷达点云数据经过 backbone 后的 bev 特征图
+            x: [bs c h w] x_pts (1, 512, 180, 180)
+        x_img 是图像数据经过 backbone 后的 6 个环视特征图，叠加在一块
+            x_img: = (6, 256, 40, 100)
             return List(dict(head_name: [num_dec x bs x num_query * head_dim]) ) x task_num
         """
         ret_dicts = []
-        x = self.shared_conv(x)
+        x = self.shared_conv(x)  # (1, 256, 180, 180)
         
+        # query 的随机点作为 anchor。 torch.Size([900, 3])
         reference_points = self.reference_points.weight
+        # torch.Size([1, 900, 3])
         reference_points, attn_mask, mask_dict = self.prepare_for_dn(x.shape[0], reference_points, img_metas)
-        
         mask = x.new_zeros(x.shape[0], x.shape[2], x.shape[3])
         
+        # -------------------重点开始---------------------------
+        # 获取图像 positional embeding, torch.Size([6, 40, 100, 256])
         rv_pos_embeds = self._rv_pe(x_img, img_metas)
+        
+        # 获取点云 positional embeding, torch.Size([32400(180*180), 256])
         bev_pos_embeds = self.bev_embedding(pos2embed(self.coords_bev.to(x.device), num_pos_feats=self.hidden_dim))
         
+        # 获取点云、图像的 query, torch.Size([1, 900, 256])
         bev_query_embeds, rv_query_embeds = self.query_embed(reference_points, img_metas)
         query_embeds = bev_query_embeds + rv_query_embeds
 
         outs_dec, _ = self.transformer(
-                            x, x_img, query_embeds,
-                            bev_pos_embeds, rv_pos_embeds,
-                            attn_masks=attn_mask
+                            x,                       # torch.Size([1, 256, 180, 180]) （pts token）
+                            x_img,                   # torch.Size([6, 256, 40, 100])  （img token）
+                            query_embeds,            # torch.Size([1, 900, 256])      （query）
+                            bev_pos_embeds,          # torch.Size([32400, 256])       （pts embed）
+                            rv_pos_embeds,           # torch.Size([6, 40, 100, 256])  （img embed）
+                            attn_masks=attn_mask     # None
                         )
-        outs_dec = torch.nan_to_num(outs_dec)
+        outs_dec = torch.nan_to_num(outs_dec)  # (6, 1, 900, 256)
+        # -------------------重点结束---------------------------
 
+        # (1, 900, 3)
         reference = inverse_sigmoid(reference_points.clone())
         
         flag = 0

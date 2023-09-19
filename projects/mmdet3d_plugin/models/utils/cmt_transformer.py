@@ -102,28 +102,32 @@ class CmtTransformer(BaseModule):
                       [bs, embed_dims, h, w].
         """
         bs, c, h, w = x.shape
+        # torch.Size([32400, 1, 256]) 激光雷达模态 bev 特征 转 token
         bev_memory = rearrange(x, "bs c h w -> (h w) bs c") # [bs, n, c, h, w] -> [n*h*w, bs, c]
+        # torch.Size([24000, 1, 256]) 图像模态 特征图 转 token
         rv_memory = rearrange(x_img, "(bs v) c h w -> (v h w) bs c", bs=bs)
         bev_pos_embed = bev_pos_embed.unsqueeze(1).repeat(1, bs, 1) # [bs, n, c, h, w] -> [n*h*w, bs, c]
         rv_pos_embed = rearrange(rv_pos_embed, "(bs v) h w c -> (v h w) bs c", bs=bs)
-        
+        # token=torch.Size([56400, 1, 256]), positional-embed=torch.Size([56400, 1, 256])
+        # 两种模态的 token concat ， 两种模态的 pos-embed concat
         memory, pos_embed = torch.cat([bev_memory, rv_memory], dim=0), torch.cat([bev_pos_embed, rv_pos_embed], dim=0)
+        # torch.Size([900, 1, 256])
         query_embed = query_embed.transpose(0, 1)  # [num_query, dim] -> [num_query, bs, dim]
         mask =  memory.new_zeros(bs, memory.shape[0]) # [bs, n, h, w] -> [bs, n*h*w]
 
         target = torch.zeros_like(query_embed)
         # out_dec: [num_layers, num_query, bs, dim]
         out_dec = self.decoder(
-            query=target,
-            key=memory,
-            value=memory,
-            key_pos=pos_embed,
-            query_pos=query_embed,
+            query=target,                    # decoder 的 token -> query              torch.Size([900, 1, 256])
+            key=memory,                      # encoder 的 token -> key                torch.Size([56400, 1, 256])
+            value=memory,                    # encoder 的 token -> value              torch.Size([56400, 1, 256])
+            key_pos=pos_embed,               # encoder 的 positional encode           torch.Size([56400, 1, 256])
+            query_pos=query_embed,           # decoder 的 token -> query pos-embed    torch.Size([900, 1, 256])
             key_padding_mask=mask,
             attn_masks=[attn_masks, None],
             reg_branch=reg_branch,
             )
-        out_dec = out_dec.transpose(1, 2)
+        out_dec = out_dec.transpose(1, 2)  # torch.Size([6, 900, 1, 256]) -> torch.Size([6, 900, 1, 256])
         return  out_dec, memory
 
 

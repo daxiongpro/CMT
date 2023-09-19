@@ -52,6 +52,7 @@ train_pipeline = [
         db_sampler=dict(
             type='UnifiedDataBaseSampler',
             data_root=None,
+            # data_root=data_root,
             info_path=data_root + 'nuscenes_dbinfos_train.pkl',
             rate=1.0,
             prepare=dict(
@@ -361,6 +362,7 @@ dist_params = dict(backend='nccl')
 log_level = 'INFO'
 work_dir = None
 load_from='ckpts/fcos3d_vovnet_imgbackbone-remapped.pth'
+# load_from = None
 resume_from = None
 workflow = [('train', 1)]
 gpu_ids = range(0, 8)
