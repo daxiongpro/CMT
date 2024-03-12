@@ -438,15 +438,13 @@ class CmtHead(BaseModule):
 
     def _bev_query_embed(self, ref_points, img_metas):
         """
-        content embeding
+        ref_points: torch.Size([1, 900, 3])
         """
         bev_embeds = self.bev_embedding(pos2embed(ref_points, num_pos_feats=self.hidden_dim))
         return bev_embeds
 
     def _rv_query_embed(self, ref_points, img_metas):
         """
-        positional embeding
-        公式： Γ_q = ψ_{pc} (A_{pc}) + ψ_{im} (A_{im})
         ref_points: torch.Size([1, 900, 3])
         """
         pad_h, pad_w, _ = img_metas[0]['pad_shape'][0]
