@@ -1,6 +1,6 @@
 CREATE_DATA='tools/create_data.py'
 DATASET_NAME='nuscenes'
-ROOT_PATH_PROJ='/home/daxiongpro/code/CMT'
+ROOT_PATH_PROJ=$(pwd)
 ROOT_PATH="--root-path ${ROOT_PATH_PROJ}/data/nuscenes"
 OUT_DIR="--out-dir ${ROOT_PATH_PROJ}/data/nuscenes"
 EXTRA_TAG='--extra-tag nuscenes'
