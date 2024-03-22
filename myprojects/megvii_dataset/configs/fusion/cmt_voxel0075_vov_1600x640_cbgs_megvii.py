@@ -1,5 +1,10 @@
 plugin=True
 plugin_dir='projects/mmdet3d_plugin/'
+custom_imports = dict(
+    imports=[
+        'myprojects.megvii_dataset.mmdet3d_plugin.datasets.megvii_dataset',
+    ],
+    allow_failed_imports=False)
 
 point_cloud_range = [-54.0, -54.0, -5.0, 54.0, 54.0, 3.0]
 # class_names = [
