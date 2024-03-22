@@ -373,7 +373,8 @@ log_config = dict(
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
 work_dir = None
-load_from='ckpts/fcos3d_vovnet_imgbackbone-remapped.pth'
+# load_from='ckpts/fcos3d_vovnet_imgbackbone-remapped.pth'
+load_from='ckpts/voxel0075_vov_1600x640_epoch20.pth'
 resume_from = None
 workflow = [('train', 1)]
 gpu_ids = range(0, 8)
