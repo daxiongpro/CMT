@@ -119,7 +119,7 @@ ckpts
 # custom
 nuscenes_gt_database
 nuscenes_unified_gt_database
-work_dirs
+work_dirs*
 *.pkl
 *.pkl.json
 *.log.json
