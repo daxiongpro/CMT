@@ -361,7 +361,7 @@ optimizer_config = dict(
     custom_fp16=dict(pts_voxel_encoder=False, pts_middle_encoder=False, pts_bbox_head=False))
 lr_config = dict(
     policy='cyclic',
-    target_ratio=(8, 0.0001),
+    target_ratio=(3, 0.0001),  # 原作者为 8，出现梯度 nan。issue 里建议调整到 <4。
     cyclic_times=1,
     step_ratio_up=0.4)
 momentum_config = dict(
